@@ -88,7 +88,7 @@
     .animation-settings {
       display: grid;
       flex-basis: 100%;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
       padding: 11px 12px;
       border: 2px solid #4d3267;
@@ -187,6 +187,18 @@
         <output id="animation-speed-value" for="animation-speed">1.8×</output>
         <input id="animation-speed" type="range" min="0.5" max="2" value="1.8" step="0.1" data-unit="times">
       </label>
+
+      <label class="setting" for="switch-moment">
+        <span>Момент смены</span>
+        <output id="switch-moment-value" for="switch-moment">На вершине</output>
+        <input id="switch-moment" type="range" min="-100" max="100" value="0" step="5" data-unit="switch">
+      </label>
+
+      <label class="setting" for="bubble-reaction">
+        <span>Реакция бабла</span>
+        <output id="bubble-reaction-value" for="bubble-reaction">100%</output>
+        <input id="bubble-reaction" type="range" min="0" max="200" value="100" step="5" data-unit="percent">
+      </label>
     </div>
   </div>
 
@@ -223,11 +235,15 @@
           this.jumpHeightSlider = document.querySelector('#jump-height');
           this.landingBounceSlider = document.querySelector('#landing-bounce');
           this.animationSpeedSlider = document.querySelector('#animation-speed');
+          this.switchMomentSlider = document.querySelector('#switch-moment');
+          this.bubbleReactionSlider = document.querySelector('#bubble-reaction');
           this.sliders = [
             this.anticipationSlider,
             this.jumpHeightSlider,
             this.landingBounceSlider,
-            this.animationSpeedSlider
+            this.animationSpeedSlider,
+            this.switchMomentSlider,
+            this.bubbleReactionSlider
           ];
 
           this.handleSwapClick = () => this.jumpAndSwap();
@@ -290,9 +306,21 @@
 
         updateSliderValue(slider) {
           const output = document.querySelector(`#${slider.id}-value`);
-          output.textContent = slider.dataset.unit === 'times'
-            ? `${Number(slider.value).toFixed(1)}×`
-            : `${slider.value} px`;
+          const value = Number(slider.value);
+
+          if (slider.dataset.unit === 'times') {
+            output.textContent = `${value.toFixed(1)}×`;
+          } else if (slider.dataset.unit === 'percent') {
+            output.textContent = `${value}%`;
+          } else if (slider.dataset.unit === 'switch') {
+            output.textContent = value === 0
+              ? 'На вершине'
+              : value < 0
+                ? `Раньше ${Math.abs(value)}%`
+                : `Позже ${value}%`;
+          } else {
+            output.textContent = `${value} px`;
+          }
         }
 
         getAnimationSettings() {
@@ -300,7 +328,9 @@
             anticipation: Number(this.anticipationSlider.value),
             jumpHeight: Number(this.jumpHeightSlider.value),
             landingBounce: Number(this.landingBounceSlider.value),
-            speed: Number(this.animationSpeedSlider.value)
+            speed: Number(this.animationSpeedSlider.value),
+            switchMoment: Number(this.switchMomentSlider.value),
+            bubbleReaction: Number(this.bubbleReactionSlider.value) / 100
           };
         }
 
@@ -318,19 +348,51 @@
           const currentBaseY = this.centerY + currentPosition.y;
           const nextBaseX = this.centerX + nextPosition.x;
           const nextBaseY = this.centerY + nextPosition.y;
-          const { anticipation, jumpHeight, landingBounce, speed } = this.getAnimationSettings();
+          const {
+            anticipation,
+            jumpHeight,
+            landingBounce,
+            speed,
+            switchMoment,
+            bubbleReaction
+          } = this.getAnimationSettings();
           const hasAnticipation = anticipation > 0;
           const duration = (milliseconds) => Math.round(milliseconds / speed);
-          const bubbleDip = Math.min(8, anticipation * 0.14);
-          const bubbleLift = Math.min(12, jumpHeight * 0.2);
-          const bubbleBounce = Math.min(6, landingBounce * 0.15);
+          const anticipationDuration = duration(135);
+          const ascentDuration = duration(300);
+          const fallDuration = duration(300);
+          const bubbleDip = Math.min(8, anticipation * 0.14) * bubbleReaction;
+          const bubbleLift = Math.min(12, jumpHeight * 0.2) * bubbleReaction;
+          const bubbleBounce = Math.min(6, landingBounce * 0.15) * bubbleReaction;
+          const switchDelay = switchMoment <= 0
+            ? anticipationDuration + ascentDuration * (1 + switchMoment / 100)
+            : anticipationDuration + ascentDuration + fallDuration * (switchMoment / 100);
+          let hasSwitched = false;
+          let switchEvent = null;
+
+          const switchTexture = () => {
+            if (hasSwitched) {
+              return;
+            }
+
+            hasSwitched = true;
+            this.content.setTexture(nextTexture);
+            this.activeTexture = nextTexture;
+            this.swapButton.textContent = nextTexture === 'wow'
+              ? 'Прыжок → x1'
+              : 'Прыжок → WOW';
+          };
 
           const finishAnimation = () => {
+            switchTexture();
+            switchEvent?.remove(false);
             this.content.setPosition(nextBaseX, nextBaseY).setScale(1);
             this.bubble.setPosition(this.centerX, this.centerY).setScale(1);
             this.isAnimating = false;
             this.swapButton.disabled = false;
           };
+
+          switchEvent = this.time.delayedCall(switchDelay, switchTexture);
 
           const playLandingBounce = () => {
             if (landingBounce === 0) {
@@ -341,8 +403,8 @@
             this.tweens.add({
               targets: this.bubble,
               y: this.centerY - bubbleBounce,
-              scaleX: 0.985,
-              scaleY: 1.02,
+              scaleX: 1 - 0.015 * bubbleReaction,
+              scaleY: 1 + 0.02 * bubbleReaction,
               duration: duration(135),
               ease: 'Quad.Out'
             });
@@ -381,9 +443,9 @@
           this.tweens.add({
             targets: this.bubble,
             y: this.centerY + bubbleDip,
-            scaleX: hasAnticipation ? 1.035 : 1,
-            scaleY: hasAnticipation ? 0.965 : 1,
-            duration: duration(135),
+            scaleX: hasAnticipation ? 1 + 0.035 * bubbleReaction : 1,
+            scaleY: hasAnticipation ? 1 - 0.035 * bubbleReaction : 1,
+            duration: anticipationDuration,
             ease: 'Quad.In'
           });
 
@@ -392,15 +454,15 @@
             y: currentBaseY + anticipation,
             scaleX: hasAnticipation ? 1.08 : 1,
             scaleY: hasAnticipation ? 0.9 : 1,
-            duration: duration(135),
+            duration: anticipationDuration,
             ease: 'Quad.In',
             onComplete: () => {
               this.tweens.add({
                 targets: this.bubble,
                 y: this.centerY - bubbleLift,
-                scaleX: 0.985,
-                scaleY: 1.025,
-                duration: duration(300),
+                scaleX: 1 - 0.015 * bubbleReaction,
+                scaleY: 1 + 0.025 * bubbleReaction,
+                duration: ascentDuration,
                 ease: 'Quad.Out'
               });
 
@@ -409,32 +471,28 @@
                 y: currentBaseY - jumpHeight,
                 scaleX: 0.98,
                 scaleY: 1.07,
-                duration: duration(300),
+                duration: ascentDuration,
                 ease: 'Quad.Out',
                 onComplete: () => {
-                  // Замена происходит ровно в верхней точке прыжка.
-                  this.content.setTexture(nextTexture);
+                  // Позиция следующей картинки плавно учитывается на обратном пути.
                   this.content.setPosition(nextBaseX, nextBaseY - jumpHeight);
-                  this.activeTexture = nextTexture;
-                  this.swapButton.textContent = nextTexture === 'wow'
-                    ? 'Прыжок → x1'
-                    : 'Прыжок → WOW';
 
                   this.tweens.add({
                     targets: this.bubble,
                     y: this.centerY + bubbleBounce,
-                    scaleX: landingBounce > 0 ? 1.04 : 1,
-                    scaleY: landingBounce > 0 ? 0.96 : 1,
-                    duration: duration(300),
+                    scaleX: landingBounce > 0 ? 1 + 0.04 * bubbleReaction : 1,
+                    scaleY: landingBounce > 0 ? 1 - 0.04 * bubbleReaction : 1,
+                    duration: fallDuration,
                     ease: 'Quad.In'
                   });
 
                   this.tweens.add({
                     targets: this.content,
+                    x: nextBaseX,
                     y: nextBaseY + landingBounce,
                     scaleX: landingBounce > 0 ? 1.07 : 1,
                     scaleY: landingBounce > 0 ? 0.91 : 1,
-                    duration: duration(300),
+                    duration: fallDuration,
                     ease: 'Quad.In',
                     onComplete: playLandingBounce
                   });
