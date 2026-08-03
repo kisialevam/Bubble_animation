@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10051f">
+  <title>Bubble Transition — Phaser</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Courier New", monospace;
+      background: #10051f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 44%, rgba(105, 39, 175, 0.34), transparent 42%),
+        linear-gradient(145deg, #19072f 0%, #0e051b 62%, #08020f 100%);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+
+    #game {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+
+    #game canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    .hint {
+      position: fixed;
+      z-index: 10;
+      right: max(14px, env(safe-area-inset-right));
+      bottom: max(12px, env(safe-area-inset-bottom));
+      margin: 0;
+      color: rgba(255, 255, 255, 0.68);
+      font-size: clamp(10px, 1.6vw, 13px);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-shadow: 2px 2px 0 #210839;
+      pointer-events: none;
+    }
+
+    .error {
+      position: fixed;
+      z-index: 20;
+      max-width: 560px;
+      padding: 24px;
+      color: #fff;
+      text-align: center;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main id="game" aria-label="Анимация перехода между уровнями"></main>
+  <p class="hint">Клик / Пробел / R — повторить</p>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"></script>
+  <script>
+    (() => {
+      'use strict';
+
+      if (typeof Phaser === 'undefined') {
+        document.body.insertAdjacentHTML(
+          'beforeend',
+          '<p class="error">Не удалось загрузить Phaser. Проверьте подключение к интернету и обновите страницу.</p>'
+        );
+        return;
+      }
+
+      const GAME_WIDTH = 960;
+      const GAME_HEIGHT = 540;
+      const CENTER_X = GAME_WIDTH / 2;
+      const CENTER_Y = GAME_HEIGHT / 2;
+
+      class BubbleTransitionScene extends Phaser.Scene {
+        constructor() {
+          super('BubbleTransition');
+          this.sequenceEvents = [];
+          this.floatTween = null;
+          this.runNumber = 0;
+        }
+
+        preload() {
+          this.load.image('bubble', 'buble.png');
+          this.load.image('wow', 'wow.png');
+          this.load.image('bonus', 'x1.png');
+        }
+
+        create() {
+          this.cameras.main.setBackgroundColor('rgba(0, 0, 0, 0)');
+          this.buildBackground();
+          this.buildTransitionObjects();
+
+          this.input.on('pointerdown', () => this.playTransition());
+          this.input.keyboard?.on('keydown-SPACE', () => this.playTransition());
+          this.input.keyboard?.on('keydown-R', () => this.playTransition());
+
+          this.playTransition();
+        }
+
+        buildBackground() {
+          const background = this.add.graphics().setDepth(-20);
+          background.fillStyle(0x120621, 1);
+          background.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+          const stripes = this.add.graphics().setDepth(-19);
+          stripes.fillStyle(0x2b0b49, 0.55);
+          for (let x = -GAME_HEIGHT; x < GAME_WIDTH; x += 96) {
+            stripes.fillRect(x, 0, 26, GAME_HEIGHT * 1.3);
+          }
+          stripes.setRotation(-0.17);
+
+          const grid = this.add.graphics().setDepth(-18);
+          grid.lineStyle(2, 0x7d36c5, 0.12);
+          for (let x = 0; x <= GAME_WIDTH; x += 48) {
+            grid.lineBetween(x, 0, x, GAME_HEIGHT);
+          }
+          for (let y = 0; y <= GAME_HEIGHT; y += 48) {
+            grid.lineBetween(0, y, GAME_WIDTH, y);
+          }
+
+          this.roundText = this.add.text(CENTER_X, CENTER_Y, '01', {
+            fontFamily: 'Courier New, monospace',
+            fontSize: '270px',
+            fontStyle: 'bold',
+            color: '#b96bff',
+            stroke: '#b96bff',
+            strokeThickness: 3
+          })
+            .setOrigin(0.5)
+            .setAlpha(0.075)
+            .setDepth(-15);
+
+          this.cornerLabel = this.add.text(34, 30, 'SPICE CREAM // TRANSITION TEST', {
+            fontFamily: 'Courier New, monospace',
+            fontSize: '16px',
+            fontStyle: 'bold',
+            color: '#f5eefe'
+          })
+            .setAlpha(0.58)
+            .setDepth(10);
+        }
+
+        buildTransitionObjects() {
+          this.leftPanel = this.add.rectangle(0, CENTER_Y, GAME_WIDTH / 2, GAME_HEIGHT, 0xf52880)
+            .setOrigin(0, 0.5)
+            .setDepth(2);
+
+          this.rightPanel = this.add.rectangle(GAME_WIDTH, CENTER_Y, GAME_WIDTH / 2, GAME_HEIGHT, 0x6929b9)
+            .setOrigin(1, 0.5)
+            .setDepth(2);
+
+          this.panelStripeLeft = this.add.rectangle(0, CENTER_Y, 34, GAME_HEIGHT, 0xffd1eb)
+            .setOrigin(1, 0.5)
+            .setDepth(3);
+
+          this.panelStripeRight = this.add.rectangle(GAME_WIDTH, CENTER_Y, 34, GAME_HEIGHT, 0xd9c1ff)
+            .setOrigin(0, 0.5)
+            .setDepth(3);
+
+          this.seam = this.add.rectangle(CENTER_X, CENTER_Y, 8, GAME_HEIGHT, 0xffffff)
+            .setScale(1, 0)
+            .setDepth(4);
+
+          this.shadow = this.add.ellipse(CENTER_X, 397, 360, 46, 0x09010f, 0.48)
+            .setScale(0)
+            .setAlpha(0)
+            .setDepth(5);
+
+          this.bubble = this.add.image(CENTER_X, 248, 'bubble')
+            .setScale(0)
+            .setAlpha(0)
+            .setDepth(6);
+
+          this.wow = this.add.image(CENTER_X, 214, 'wow')
+            .setScale(0)
+            .setAlpha(0)
+            .setDepth(7);
+
+          this.bonus = this.add.image(CENTER_X, 302, 'bonus')
+            .setScale(0)
+            .setAlpha(0)
+            .setDepth(7);
+
+          this.levelLabel = this.add.text(CENTER_X, 76, 'СЛЕДУЮЩИЙ УРОВЕНЬ', {
+            fontFamily: 'Courier New, monospace',
+            fontSize: '22px',
+            fontStyle: 'bold',
+            color: '#ffffff',
+            stroke: '#2b083e',
+            strokeThickness: 6,
+            letterSpacing: 4
+          })
+            .setOrigin(0.5)
+            .setAlpha(0)
+            .setDepth(8);
+
+          this.dots = [];
+          for (let index = 0; index < 3; index += 1) {
+            const dot = this.add.rectangle(CENTER_X - 26 + index * 26, 455, 12, 12, 0xffffff)
+              .setAlpha(0)
+              .setDepth(8);
+            this.dots.push(dot);
+          }
+
+          this.burstRays = [];
+          for (let index = 0; index < 16; index += 1) {
+            const angle = (Math.PI * 2 * index) / 16;
+            const ray = this.add.rectangle(CENTER_X, 252, 9, index % 2 === 0 ? 42 : 26, 0xffffff)
+              .setOrigin(0.5, 1)
+              .setRotation(angle + Math.PI / 2)
+              .setScale(0)
+              .setAlpha(0)
+              .setDepth(5);
+            ray.burstAngle = angle;
+            this.burstRays.push(ray);
+          }
+        }
+
+        schedule(delay, callback) {
+          const event = this.time.delayedCall(delay, callback);
+          this.sequenceEvents.push(event);
+        }
+
+        clearSequence() {
+          this.sequenceEvents.forEach((event) => event.remove(false));
+          this.sequenceEvents.length = 0;
+          this.floatTween?.stop();
+          this.floatTween = null;
+          this.tweens.killAll();
+        }
+
+        resetObjects() {
+          this.leftPanel.setScale(0, 1);
+          this.rightPanel.setScale(0, 1);
+          this.panelStripeLeft.setPosition(0, CENTER_Y).setScale(1);
+          this.panelStripeRight.setPosition(GAME_WIDTH, CENTER_Y).setScale(1);
+          this.seam.setScale(1, 0).setAlpha(0);
+
+          this.shadow.setPosition(CENTER_X, 397).setScale(0).setAlpha(0);
+          this.bubble.setPosition(CENTER_X, 248).setScale(0).setAlpha(0).setAngle(-7);
+          this.wow.setPosition(CENTER_X, 214).setScale(0).setAlpha(0).setAngle(-4);
+          this.bonus.setPosition(CENTER_X, 302).setScale(0).setAlpha(0).setAngle(4);
+          this.levelLabel.setY(76).setAlpha(0);
+          this.dots.forEach((dot) => dot.setScale(1).setAlpha(0));
+          this.burstRays.forEach((ray) => ray.setPosition(CENTER_X, 252).setScale(0).setAlpha(0));
+        }
+
+        playTransition() {
+          this.clearSequence();
+          this.resetObjects();
+          this.runNumber += 1;
+          this.roundText.setText(this.runNumber % 2 === 1 ? '01' : '02');
+
+          this.tweens.add({
+            targets: [this.leftPanel, this.rightPanel],
+            scaleX: 1,
+            duration: 420,
+            ease: 'Cubic.InOut'
+          });
+          this.tweens.add({
+            targets: [this.panelStripeLeft, this.panelStripeRight],
+            x: CENTER_X,
+            duration: 360,
+            delay: 70,
+            ease: 'Cubic.Out'
+          });
+
+          this.schedule(400, () => {
+            this.seam.setAlpha(1);
+            this.tweens.add({
+              targets: this.seam,
+              scaleY: 1,
+              duration: 170,
+              ease: 'Sine.Out',
+              yoyo: true
+            });
+          });
+
+          this.schedule(520, () => {
+            this.tweens.add({
+              targets: [this.leftPanel, this.rightPanel],
+              scaleX: 0,
+              duration: 510,
+              ease: 'Quart.InOut'
+            });
+            this.tweens.add({
+              targets: this.panelStripeLeft,
+              x: 0,
+              duration: 430,
+              delay: 35,
+              ease: 'Quart.InOut'
+            });
+            this.tweens.add({
+              targets: this.panelStripeRight,
+              x: GAME_WIDTH,
+              duration: 430,
+              delay: 35,
+              ease: 'Quart.InOut'
+            });
+          });
+
+          this.schedule(585, () => {
+            this.tweens.add({
+              targets: this.levelLabel,
+              alpha: 0.92,
+              y: 86,
+              duration: 380,
+              ease: 'Cubic.Out'
+            });
+            this.tweens.add({
+              targets: this.shadow,
+              alpha: 0.48,
+              scaleX: 1,
+              scaleY: 1,
+              duration: 480,
+              ease: 'Back.Out'
+            });
+            this.tweens.add({
+              targets: this.bubble,
+              alpha: 1,
+              scaleX: 1.62,
+              scaleY: 1.62,
+              angle: 0,
+              duration: 650,
+              ease: 'Back.Out'
+            });
+          });
+
+          this.schedule(820, () => this.animateBurst());
+
+          this.schedule(910, () => {
+            this.tweens.add({
+              targets: this.wow,
+              alpha: 1,
+              scaleX: 1.13,
+              scaleY: 1.13,
+              angle: 0,
+              duration: 420,
+              ease: 'Back.Out'
+            });
+          });
+
+          this.schedule(1120, () => {
+            this.tweens.add({
+              targets: this.bonus,
+              alpha: 1,
+              scaleX: 0.92,
+              scaleY: 0.92,
+              angle: 0,
+              duration: 430,
+              ease: 'Back.Out'
+            });
+            this.animateDots();
+          });
+
+          this.schedule(1500, () => {
+            this.floatTween = this.tweens.add({
+              targets: [this.bubble, this.wow, this.bonus],
+              y: '-=7',
+              duration: 720,
+              ease: 'Sine.InOut',
+              yoyo: true,
+              repeat: 1
+            });
+          });
+
+          this.schedule(3050, () => {
+            this.tweens.add({
+              targets: [this.wow, this.bonus],
+              alpha: 0,
+              scaleX: 1.3,
+              scaleY: 0.45,
+              duration: 280,
+              ease: 'Cubic.In'
+            });
+            this.tweens.add({
+              targets: this.bubble,
+              alpha: 0,
+              y: 128,
+              scaleX: 1.9,
+              scaleY: 0.45,
+              duration: 390,
+              ease: 'Back.In'
+            });
+            this.tweens.add({
+              targets: [this.shadow, this.levelLabel, ...this.dots],
+              alpha: 0,
+              duration: 250,
+              ease: 'Sine.In'
+            });
+          });
+
+          this.schedule(3950, () => this.playTransition());
+        }
+
+        animateBurst() {
+          this.burstRays.forEach((ray, index) => {
+            const distance = index % 2 === 0 ? 225 : 190;
+            const destinationX = CENTER_X + Math.cos(ray.burstAngle) * distance;
+            const destinationY = 252 + Math.sin(ray.burstAngle) * distance;
+            ray.setFillStyle(index % 3 === 0 ? 0xff72ba : index % 3 === 1 ? 0xd8b4ff : 0xffffff, 1);
+
+            this.tweens.add({
+              targets: ray,
+              x: destinationX,
+              y: destinationY,
+              alpha: { from: 0.92, to: 0 },
+              scaleY: { from: 0.15, to: 1 },
+              scaleX: { from: 0.3, to: 1 },
+              duration: 650,
+              delay: index * 12,
+              ease: 'Cubic.Out'
+            });
+          });
+        }
+
+        animateDots() {
+          this.dots.forEach((dot, index) => {
+            this.tweens.add({
+              targets: dot,
+              alpha: { from: 0, to: 0.9 },
+              scaleX: { from: 0, to: 1 },
+              scaleY: { from: 0, to: 1 },
+              duration: 190,
+              delay: index * 135,
+              ease: 'Back.Out',
+              yoyo: true,
+              hold: 520
+            });
+          });
+        }
+      }
+
+      const config = {
+        type: Phaser.AUTO,
+        parent: 'game',
+        width: GAME_WIDTH,
+        height: GAME_HEIGHT,
+        transparent: true,
+        pixelArt: true,
+        antialias: false,
+        roundPixels: true,
+        backgroundColor: 'rgba(0, 0, 0, 0)',
+        scale: {
+          mode: Phaser.Scale.FIT,
+          autoCenter: Phaser.Scale.CENTER_BOTH,
+          width: GAME_WIDTH,
+          height: GAME_HEIGHT
+        },
+        scene: BubbleTransitionScene
+      };
+
+      new Phaser.Game(config);
+    })();
+  </script>
+</body>
+</html>
