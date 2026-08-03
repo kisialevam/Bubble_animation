@@ -38,8 +38,11 @@
       left: 50%;
       bottom: max(18px, env(safe-area-inset-bottom));
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: center;
+      gap: 9px;
+      width: min(94vw, 820px);
       transform: translateX(-50%);
     }
 
@@ -78,11 +81,75 @@
       opacity: 0.6;
     }
 
+    .settings-toggle {
+      display: none;
+    }
+
+    .animation-settings {
+      display: grid;
+      flex-basis: 100%;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding: 11px 12px;
+      border: 2px solid #4d3267;
+      border-radius: 8px;
+      background: rgba(20, 8, 32, 0.96);
+      box-shadow: 0 4px 0 #09030f;
+    }
+
+    .setting {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      color: #e7d8f7;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .setting input {
+      grid-column: 1 / -1;
+      width: 100%;
+      accent-color: #ff60ae;
+      cursor: pointer;
+    }
+
+    .setting output {
+      color: #ff8dc3;
+    }
+
     @media (max-width: 680px),
       (max-height: 520px),
       (hover: none) and (pointer: coarse) {
       .controls {
+        right: max(12px, env(safe-area-inset-right));
+        bottom: max(12px, env(safe-area-inset-bottom));
+        left: auto;
+        justify-content: flex-end;
+        width: auto;
+        transform: none;
+      }
+
+      #swap-image {
         display: none;
+      }
+
+      .settings-toggle {
+        display: inline-block;
+      }
+
+      .animation-settings {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 10px);
+        display: none;
+        grid-template-columns: 1fr;
+        width: min(92vw, 410px);
+        max-height: min(68vh, 460px);
+        overflow-y: auto;
+      }
+
+      .controls.settings-open .animation-settings {
+        display: grid;
       }
     }
   </style>
@@ -92,6 +159,35 @@
 
   <div class="controls" role="toolbar" aria-label="Управление изображением в бабле">
     <button id="swap-image" type="button">Прыжок → WOW</button>
+    <button id="settings-toggle" class="settings-toggle" type="button" aria-expanded="false">
+      ⚙ Настройки
+    </button>
+
+    <div id="animation-settings" class="animation-settings" aria-label="Настройки анимации">
+      <label class="setting" for="anticipation">
+        <span>Заскок вниз</span>
+        <output id="anticipation-value" for="anticipation">36 px</output>
+        <input id="anticipation" type="range" min="0" max="60" value="36" step="1" data-unit="px">
+      </label>
+
+      <label class="setting" for="jump-height">
+        <span>Высота прыжка</span>
+        <output id="jump-height-value" for="jump-height">34 px</output>
+        <input id="jump-height" type="range" min="20" max="180" value="34" step="1" data-unit="px">
+      </label>
+
+      <label class="setting" for="landing-bounce">
+        <span>Баунс в конце</span>
+        <output id="landing-bounce-value" for="landing-bounce">20 px</output>
+        <input id="landing-bounce" type="range" min="0" max="50" value="20" step="1" data-unit="px">
+      </label>
+
+      <label class="setting" for="animation-speed">
+        <span>Скорость</span>
+        <output id="animation-speed-value" for="animation-speed">1.8×</output>
+        <input id="animation-speed" type="range" min="0.5" max="2" value="1.8" step="0.1" data-unit="times">
+      </label>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"></script>
@@ -106,12 +202,6 @@
             x1: { x: 8, y: -20 },
             wow: { x: 5, y: -19 }
           };
-          this.animationSettings = Object.freeze({
-            anticipation: 36,
-            jumpHeight: 34,
-            landingBounce: 20,
-            speed: 1.8
-          });
           this.activeTexture = 'x1';
           this.isAnimating = false;
         }
@@ -126,11 +216,34 @@
           this.bubble = this.add.image(0, 0, 'bubble');
           this.content = this.add.image(0, 0, this.activeTexture);
 
+          this.controls = document.querySelector('.controls');
           this.swapButton = document.querySelector('#swap-image');
+          this.settingsToggle = document.querySelector('#settings-toggle');
+          this.anticipationSlider = document.querySelector('#anticipation');
+          this.jumpHeightSlider = document.querySelector('#jump-height');
+          this.landingBounceSlider = document.querySelector('#landing-bounce');
+          this.animationSpeedSlider = document.querySelector('#animation-speed');
+          this.sliders = [
+            this.anticipationSlider,
+            this.jumpHeightSlider,
+            this.landingBounceSlider,
+            this.animationSpeedSlider
+          ];
+
           this.handleSwapClick = () => this.jumpAndSwap();
-          this.handleCanvasTap = () => this.jumpAndSwap();
+          this.handleCanvasTap = () => {
+            this.toggleSettings(false);
+            this.jumpAndSwap();
+          };
+          this.handleSettingsToggle = () => this.toggleSettings();
+          this.handleSliderInput = (event) => this.updateSliderValue(event.target);
 
           this.swapButton.addEventListener('click', this.handleSwapClick);
+          this.settingsToggle.addEventListener('click', this.handleSettingsToggle);
+          this.sliders.forEach((slider) => {
+            slider.addEventListener('input', this.handleSliderInput);
+            this.updateSliderValue(slider);
+          });
           this.input.on('pointerdown', this.handleCanvasTap);
 
           this.positionImages(this.scale.gameSize);
@@ -138,6 +251,10 @@
 
           this.events.once('shutdown', () => {
             this.swapButton.removeEventListener('click', this.handleSwapClick);
+            this.settingsToggle.removeEventListener('click', this.handleSettingsToggle);
+            this.sliders.forEach((slider) => {
+              slider.removeEventListener('input', this.handleSliderInput);
+            });
             this.input.off('pointerdown', this.handleCanvasTap);
           });
         }
@@ -161,6 +278,32 @@
             .setScale(1);
         }
 
+        toggleSettings(forceOpen) {
+          const shouldOpen = typeof forceOpen === 'boolean'
+            ? forceOpen
+            : !this.controls.classList.contains('settings-open');
+
+          this.controls.classList.toggle('settings-open', shouldOpen);
+          this.settingsToggle.setAttribute('aria-expanded', String(shouldOpen));
+          this.settingsToggle.textContent = shouldOpen ? '✕ Закрыть' : '⚙ Настройки';
+        }
+
+        updateSliderValue(slider) {
+          const output = document.querySelector(`#${slider.id}-value`);
+          output.textContent = slider.dataset.unit === 'times'
+            ? `${Number(slider.value).toFixed(1)}×`
+            : `${slider.value} px`;
+        }
+
+        getAnimationSettings() {
+          return {
+            anticipation: Number(this.anticipationSlider.value),
+            jumpHeight: Number(this.jumpHeightSlider.value),
+            landingBounce: Number(this.landingBounceSlider.value),
+            speed: Number(this.animationSpeedSlider.value)
+          };
+        }
+
         jumpAndSwap() {
           if (this.isAnimating) {
             return;
@@ -175,12 +318,16 @@
           const currentBaseY = this.centerY + currentPosition.y;
           const nextBaseX = this.centerX + nextPosition.x;
           const nextBaseY = this.centerY + nextPosition.y;
-          const { anticipation, jumpHeight, landingBounce, speed } = this.animationSettings;
+          const { anticipation, jumpHeight, landingBounce, speed } = this.getAnimationSettings();
           const hasAnticipation = anticipation > 0;
           const duration = (milliseconds) => Math.round(milliseconds / speed);
+          const bubbleDip = Math.min(8, anticipation * 0.14);
+          const bubbleLift = Math.min(12, jumpHeight * 0.2);
+          const bubbleBounce = Math.min(6, landingBounce * 0.15);
 
           const finishAnimation = () => {
             this.content.setPosition(nextBaseX, nextBaseY).setScale(1);
+            this.bubble.setPosition(this.centerX, this.centerY).setScale(1);
             this.isAnimating = false;
             this.swapButton.disabled = false;
           };
@@ -192,6 +339,15 @@
             }
 
             this.tweens.add({
+              targets: this.bubble,
+              y: this.centerY - bubbleBounce,
+              scaleX: 0.985,
+              scaleY: 1.02,
+              duration: duration(135),
+              ease: 'Quad.Out'
+            });
+
+            this.tweens.add({
               targets: this.content,
               y: nextBaseY - landingBounce * 0.55,
               scaleX: 0.98,
@@ -199,6 +355,15 @@
               duration: duration(135),
               ease: 'Quad.Out',
               onComplete: () => {
+                this.tweens.add({
+                  targets: this.bubble,
+                  y: this.centerY,
+                  scaleX: 1,
+                  scaleY: 1,
+                  duration: duration(165),
+                  ease: 'Sine.InOut'
+                });
+
                 this.tweens.add({
                   targets: this.content,
                   y: nextBaseY,
@@ -214,6 +379,15 @@
 
           // Явный заскок вниз перед прыжком. Его глубину задаёт первый ползунок.
           this.tweens.add({
+            targets: this.bubble,
+            y: this.centerY + bubbleDip,
+            scaleX: hasAnticipation ? 1.035 : 1,
+            scaleY: hasAnticipation ? 0.965 : 1,
+            duration: duration(135),
+            ease: 'Quad.In'
+          });
+
+          this.tweens.add({
             targets: this.content,
             y: currentBaseY + anticipation,
             scaleX: hasAnticipation ? 1.08 : 1,
@@ -221,6 +395,15 @@
             duration: duration(135),
             ease: 'Quad.In',
             onComplete: () => {
+              this.tweens.add({
+                targets: this.bubble,
+                y: this.centerY - bubbleLift,
+                scaleX: 0.985,
+                scaleY: 1.025,
+                duration: duration(300),
+                ease: 'Quad.Out'
+              });
+
               this.tweens.add({
                 targets: this.content,
                 y: currentBaseY - jumpHeight,
@@ -236,6 +419,15 @@
                   this.swapButton.textContent = nextTexture === 'wow'
                     ? 'Прыжок → x1'
                     : 'Прыжок → WOW';
+
+                  this.tweens.add({
+                    targets: this.bubble,
+                    y: this.centerY + bubbleBounce,
+                    scaleX: landingBounce > 0 ? 1.04 : 1,
+                    scaleY: landingBounce > 0 ? 0.96 : 1,
+                    duration: duration(300),
+                    ease: 'Quad.In'
+                  });
 
                   this.tweens.add({
                     targets: this.content,
