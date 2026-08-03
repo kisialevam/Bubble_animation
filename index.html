@@ -40,7 +40,7 @@
       align-items: center;
       justify-content: center;
       gap: 9px;
-      width: min(94vw, 720px);
+      width: min(94vw, 820px);
       transform: translateX(-50%);
     }
 
@@ -88,6 +88,38 @@
       opacity: 0.6;
     }
 
+    .animation-settings {
+      display: grid;
+      flex-basis: 100%;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 11px 12px;
+      border: 2px solid #4d3267;
+      border-radius: 8px;
+      background: rgba(20, 8, 32, 0.92);
+      box-shadow: 0 4px 0 #09030f;
+    }
+
+    .setting {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      color: #e7d8f7;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .setting input {
+      grid-column: 1 / -1;
+      width: 100%;
+      accent-color: #ff60ae;
+      cursor: pointer;
+    }
+
+    .setting output {
+      color: #ff8dc3;
+    }
+
     .help {
       flex-basis: 100%;
       margin: 3px 0 0;
@@ -96,16 +128,43 @@
       font-weight: 700;
       text-align: center;
     }
+
+    @media (max-width: 680px) {
+      .animation-settings {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
   <main id="game" aria-label="Бабл с переключаемым изображением"></main>
 
   <div class="controls" role="toolbar" aria-label="Управление изображением в бабле">
-    <output id="coordinates" class="coordinates" aria-live="polite">x: 0, y: -27</output>
-    <button id="copy-coordinates" type="button">Скопировать координаты</button>
+    <output id="coordinates" class="coordinates" aria-live="polite">WOW · x: 8, y: -20</output>
+    <button id="copy-coordinates" type="button">Скопировать координаты WOW</button>
     <button id="swap-image" type="button">Прыжок → WOW</button>
-    <p class="help">Стрелки — 1 px · Shift + стрелки — 10 px</p>
+
+    <div class="animation-settings" aria-label="Настройки анимации">
+      <label class="setting" for="anticipation">
+        <span>Заскок вниз</span>
+        <output id="anticipation-value" for="anticipation">24 px</output>
+        <input id="anticipation" type="range" min="0" max="60" value="24" step="1">
+      </label>
+
+      <label class="setting" for="jump-height">
+        <span>Высота прыжка</span>
+        <output id="jump-height-value" for="jump-height">76 px</output>
+        <input id="jump-height" type="range" min="20" max="180" value="76" step="1">
+      </label>
+
+      <label class="setting" for="landing-bounce">
+        <span>Баунс в конце</span>
+        <output id="landing-bounce-value" for="landing-bounce">14 px</output>
+        <input id="landing-bounce" type="range" min="0" max="50" value="14" step="1">
+      </label>
+    </div>
+
+    <p class="help">Стрелки двигают WOW, когда он виден · Shift + стрелки — по 10 px</p>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"></script>
@@ -116,8 +175,10 @@
       class BubbleScene extends Phaser.Scene {
         constructor() {
           super('BubbleScene');
-          this.offsetX = 0;
-          this.offsetY = -27;
+          this.positions = {
+            x1: { x: 8, y: -20 },
+            wow: { x: 8, y: -20 }
+          };
           this.activeTexture = 'x1';
           this.isAnimating = false;
         }
@@ -135,14 +196,27 @@
           this.coordinatesOutput = document.querySelector('#coordinates');
           this.copyButton = document.querySelector('#copy-coordinates');
           this.swapButton = document.querySelector('#swap-image');
+          this.anticipationSlider = document.querySelector('#anticipation');
+          this.jumpHeightSlider = document.querySelector('#jump-height');
+          this.landingBounceSlider = document.querySelector('#landing-bounce');
+          this.sliders = [
+            this.anticipationSlider,
+            this.jumpHeightSlider,
+            this.landingBounceSlider
+          ];
 
           this.handleKeyDown = (event) => this.moveWithKeyboard(event);
           this.handleCopyClick = () => this.copyCoordinates();
           this.handleSwapClick = () => this.jumpAndSwap();
+          this.handleSliderInput = (event) => this.updateSliderValue(event.target);
 
           window.addEventListener('keydown', this.handleKeyDown);
           this.copyButton.addEventListener('click', this.handleCopyClick);
           this.swapButton.addEventListener('click', this.handleSwapClick);
+          this.sliders.forEach((slider) => {
+            slider.addEventListener('input', this.handleSliderInput);
+            this.updateSliderValue(slider);
+          });
 
           this.positionImages(this.scale.gameSize);
           this.updateCoordinates();
@@ -152,6 +226,9 @@
             window.removeEventListener('keydown', this.handleKeyDown);
             this.copyButton.removeEventListener('click', this.handleCopyClick);
             this.swapButton.removeEventListener('click', this.handleSwapClick);
+            this.sliders.forEach((slider) => {
+              slider.removeEventListener('input', this.handleSliderInput);
+            });
           });
         }
 
@@ -168,8 +245,9 @@
         }
 
         positionContent() {
+          const position = this.positions[this.activeTexture];
           this.content
-            .setPosition(this.centerX + this.offsetX, this.centerY + this.offsetY)
+            .setPosition(this.centerX + position.x, this.centerY + position.y)
             .setScale(1);
         }
 
@@ -188,23 +266,38 @@
 
           event.preventDefault();
 
-          if (this.isAnimating) {
+          if (this.isAnimating || this.activeTexture !== 'wow') {
             return;
           }
 
           const step = event.shiftKey ? 10 : 1;
-          this.offsetX += direction[0] * step;
-          this.offsetY += direction[1] * step;
+          this.positions.wow.x += direction[0] * step;
+          this.positions.wow.y += direction[1] * step;
           this.positionContent();
           this.updateCoordinates();
         }
 
         updateCoordinates() {
-          this.coordinatesOutput.textContent = `x: ${this.offsetX}, y: ${this.offsetY}`;
+          const { x, y } = this.positions.wow;
+          this.coordinatesOutput.textContent = `WOW · x: ${x}, y: ${y}`;
+        }
+
+        updateSliderValue(slider) {
+          const output = document.querySelector(`#${slider.id}-value`);
+          output.textContent = `${slider.value} px`;
+        }
+
+        getAnimationSettings() {
+          return {
+            anticipation: Number(this.anticipationSlider.value),
+            jumpHeight: Number(this.jumpHeightSlider.value),
+            landingBounce: Number(this.landingBounceSlider.value)
+          };
         }
 
         async copyCoordinates() {
-          const text = `x1 относительно центра бабла: x=${this.offsetX}, y=${this.offsetY}`;
+          const { x, y } = this.positions.wow;
+          const text = `WOW относительно центра бабла: x=${x}, y=${y}`;
 
           try {
             if (!navigator.clipboard?.writeText) {
@@ -225,7 +318,7 @@
           window.clearTimeout(this.copyResetTimer);
           this.copyButton.textContent = 'Скопировано ✓';
           this.copyResetTimer = window.setTimeout(() => {
-            this.copyButton.textContent = 'Скопировать координаты';
+            this.copyButton.textContent = 'Скопировать координаты WOW';
           }, 1300);
         }
 
@@ -237,28 +330,68 @@
           this.isAnimating = true;
           this.swapButton.disabled = true;
 
-          const baseY = this.centerY + this.offsetY;
+          const currentPosition = this.positions[this.activeTexture];
           const nextTexture = this.activeTexture === 'x1' ? 'wow' : 'x1';
+          const nextPosition = this.positions[nextTexture];
+          const currentBaseY = this.centerY + currentPosition.y;
+          const nextBaseX = this.centerX + nextPosition.x;
+          const nextBaseY = this.centerY + nextPosition.y;
+          const { anticipation, jumpHeight, landingBounce } = this.getAnimationSettings();
+          const hasAnticipation = anticipation > 0;
 
-          // Небольшой заскок вниз перед прыжком.
+          const finishAnimation = () => {
+            this.content.setPosition(nextBaseX, nextBaseY).setScale(1);
+            this.isAnimating = false;
+            this.swapButton.disabled = false;
+          };
+
+          const playLandingBounce = () => {
+            if (landingBounce === 0) {
+              finishAnimation();
+              return;
+            }
+
+            this.tweens.add({
+              targets: this.content,
+              y: nextBaseY - landingBounce * 0.55,
+              scaleX: 0.98,
+              scaleY: 1.03,
+              duration: 135,
+              ease: 'Quad.Out',
+              onComplete: () => {
+                this.tweens.add({
+                  targets: this.content,
+                  y: nextBaseY,
+                  scaleX: 1,
+                  scaleY: 1,
+                  duration: 165,
+                  ease: 'Sine.InOut',
+                  onComplete: finishAnimation
+                });
+              }
+            });
+          };
+
+          // Явный заскок вниз перед прыжком. Его глубину задаёт первый ползунок.
           this.tweens.add({
             targets: this.content,
-            y: baseY + 10,
-            scaleX: 1.05,
-            scaleY: 0.93,
-            duration: 100,
-            ease: 'Sine.Out',
+            y: currentBaseY + anticipation,
+            scaleX: hasAnticipation ? 1.08 : 1,
+            scaleY: hasAnticipation ? 0.9 : 1,
+            duration: 135,
+            ease: 'Quad.In',
             onComplete: () => {
               this.tweens.add({
                 targets: this.content,
-                y: baseY - 76,
-                scaleX: 1,
-                scaleY: 1.06,
-                duration: 250,
+                y: currentBaseY - jumpHeight,
+                scaleX: 0.98,
+                scaleY: 1.07,
+                duration: 300,
                 ease: 'Quad.Out',
                 onComplete: () => {
                   // Замена происходит ровно в верхней точке прыжка.
                   this.content.setTexture(nextTexture);
+                  this.content.setPosition(nextBaseX, nextBaseY - jumpHeight);
                   this.activeTexture = nextTexture;
                   this.swapButton.textContent = nextTexture === 'wow'
                     ? 'Прыжок → x1'
@@ -266,25 +399,12 @@
 
                   this.tweens.add({
                     targets: this.content,
-                    y: baseY + 4,
-                    scaleX: 1.03,
-                    scaleY: 0.96,
-                    duration: 265,
+                    y: nextBaseY + landingBounce,
+                    scaleX: landingBounce > 0 ? 1.07 : 1,
+                    scaleY: landingBounce > 0 ? 0.91 : 1,
+                    duration: 300,
                     ease: 'Quad.In',
-                    onComplete: () => {
-                      this.tweens.add({
-                        targets: this.content,
-                        y: baseY,
-                        scaleX: 1,
-                        scaleY: 1,
-                        duration: 125,
-                        ease: 'Back.Out',
-                        onComplete: () => {
-                          this.isAnimating = false;
-                          this.swapButton.disabled = false;
-                        }
-                      });
-                    }
+                    onComplete: playLandingBounce
                   });
                 }
               });
