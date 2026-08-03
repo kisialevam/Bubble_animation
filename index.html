@@ -20,15 +20,93 @@
       background: #10051f;
     }
 
+    body {
+      font-family: "Courier New", monospace;
+    }
+
     #game canvas {
       display: block;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
     }
+
+    .controls {
+      position: fixed;
+      z-index: 10;
+      left: 50%;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      width: min(94vw, 720px);
+      transform: translateX(-50%);
+    }
+
+    .coordinates,
+    button {
+      min-height: 42px;
+      border: 2px solid #7d53a8;
+      border-radius: 8px;
+      background: #211034;
+      color: #fff;
+      font: 700 14px/1 "Courier New", monospace;
+      box-shadow: 0 4px 0 #09030f;
+    }
+
+    .coordinates {
+      display: grid;
+      place-items: center;
+      min-width: 140px;
+      padding: 0 14px;
+      color: #e7d8f7;
+    }
+
+    button {
+      padding: 0 16px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: #ca9cff;
+      background: #32164f;
+    }
+
+    button:active {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 #09030f;
+    }
+
+    button:focus-visible {
+      outline: 3px solid #ff60ae;
+      outline-offset: 3px;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
+
+    .help {
+      flex-basis: 100%;
+      margin: 3px 0 0;
+      color: #a98cbe;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
-  <main id="game" aria-label="Бабл с изображением x1"></main>
+  <main id="game" aria-label="Бабл с переключаемым изображением"></main>
+
+  <div class="controls" role="toolbar" aria-label="Управление изображением в бабле">
+    <output id="coordinates" class="coordinates" aria-live="polite">x: 0, y: -27</output>
+    <button id="copy-coordinates" type="button">Скопировать координаты</button>
+    <button id="swap-image" type="button">Прыжок → WOW</button>
+    <p class="help">Стрелки — 1 px · Shift + стрелки — 10 px</p>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"></script>
   <script>
@@ -36,26 +114,182 @@
       'use strict';
 
       class BubbleScene extends Phaser.Scene {
+        constructor() {
+          super('BubbleScene');
+          this.offsetX = 0;
+          this.offsetY = -27;
+          this.activeTexture = 'x1';
+          this.isAnimating = false;
+        }
+
         preload() {
           this.load.image('bubble', 'buble.png');
           this.load.image('x1', 'x1.png');
+          this.load.image('wow', 'wow.png');
         }
 
         create() {
           this.bubble = this.add.image(0, 0, 'bubble');
-          this.x1 = this.add.image(0, 0, 'x1');
+          this.content = this.add.image(0, 0, this.activeTexture);
+
+          this.coordinatesOutput = document.querySelector('#coordinates');
+          this.copyButton = document.querySelector('#copy-coordinates');
+          this.swapButton = document.querySelector('#swap-image');
+
+          this.handleKeyDown = (event) => this.moveWithKeyboard(event);
+          this.handleCopyClick = () => this.copyCoordinates();
+          this.handleSwapClick = () => this.jumpAndSwap();
+
+          window.addEventListener('keydown', this.handleKeyDown);
+          this.copyButton.addEventListener('click', this.handleCopyClick);
+          this.swapButton.addEventListener('click', this.handleSwapClick);
 
           this.positionImages(this.scale.gameSize);
+          this.updateCoordinates();
           this.scale.on('resize', this.positionImages, this);
+
+          this.events.once('shutdown', () => {
+            window.removeEventListener('keydown', this.handleKeyDown);
+            this.copyButton.removeEventListener('click', this.handleCopyClick);
+            this.swapButton.removeEventListener('click', this.handleSwapClick);
+          });
         }
 
         positionImages(gameSize) {
-          const centerX = gameSize.width / 2;
-          const centerY = gameSize.height / 2;
+          this.centerX = gameSize.width / 2;
+          this.centerY = gameSize.height / 2;
 
-          // Обе картинки отображаются в исходном масштабе 1:1.
-          this.bubble.setPosition(centerX, centerY).setScale(1);
-          this.x1.setPosition(centerX, centerY - 27).setScale(1);
+          // Все изображения сохраняют исходный масштаб 1:1.
+          this.bubble.setPosition(this.centerX, this.centerY).setScale(1);
+
+          if (!this.isAnimating) {
+            this.positionContent();
+          }
+        }
+
+        positionContent() {
+          this.content
+            .setPosition(this.centerX + this.offsetX, this.centerY + this.offsetY)
+            .setScale(1);
+        }
+
+        moveWithKeyboard(event) {
+          const directions = {
+            ArrowLeft: [-1, 0],
+            ArrowRight: [1, 0],
+            ArrowUp: [0, -1],
+            ArrowDown: [0, 1]
+          };
+          const direction = directions[event.key];
+
+          if (!direction) {
+            return;
+          }
+
+          event.preventDefault();
+
+          if (this.isAnimating) {
+            return;
+          }
+
+          const step = event.shiftKey ? 10 : 1;
+          this.offsetX += direction[0] * step;
+          this.offsetY += direction[1] * step;
+          this.positionContent();
+          this.updateCoordinates();
+        }
+
+        updateCoordinates() {
+          this.coordinatesOutput.textContent = `x: ${this.offsetX}, y: ${this.offsetY}`;
+        }
+
+        async copyCoordinates() {
+          const text = `x1 относительно центра бабла: x=${this.offsetX}, y=${this.offsetY}`;
+
+          try {
+            if (!navigator.clipboard?.writeText) {
+              throw new Error('Clipboard API is unavailable');
+            }
+            await navigator.clipboard.writeText(text);
+          } catch (error) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.opacity = '0';
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            textArea.remove();
+          }
+
+          window.clearTimeout(this.copyResetTimer);
+          this.copyButton.textContent = 'Скопировано ✓';
+          this.copyResetTimer = window.setTimeout(() => {
+            this.copyButton.textContent = 'Скопировать координаты';
+          }, 1300);
+        }
+
+        jumpAndSwap() {
+          if (this.isAnimating) {
+            return;
+          }
+
+          this.isAnimating = true;
+          this.swapButton.disabled = true;
+
+          const baseY = this.centerY + this.offsetY;
+          const nextTexture = this.activeTexture === 'x1' ? 'wow' : 'x1';
+
+          // Небольшой заскок вниз перед прыжком.
+          this.tweens.add({
+            targets: this.content,
+            y: baseY + 10,
+            scaleX: 1.05,
+            scaleY: 0.93,
+            duration: 100,
+            ease: 'Sine.Out',
+            onComplete: () => {
+              this.tweens.add({
+                targets: this.content,
+                y: baseY - 76,
+                scaleX: 1,
+                scaleY: 1.06,
+                duration: 250,
+                ease: 'Quad.Out',
+                onComplete: () => {
+                  // Замена происходит ровно в верхней точке прыжка.
+                  this.content.setTexture(nextTexture);
+                  this.activeTexture = nextTexture;
+                  this.swapButton.textContent = nextTexture === 'wow'
+                    ? 'Прыжок → x1'
+                    : 'Прыжок → WOW';
+
+                  this.tweens.add({
+                    targets: this.content,
+                    y: baseY + 4,
+                    scaleX: 1.03,
+                    scaleY: 0.96,
+                    duration: 265,
+                    ease: 'Quad.In',
+                    onComplete: () => {
+                      this.tweens.add({
+                        targets: this.content,
+                        y: baseY,
+                        scaleX: 1,
+                        scaleY: 1,
+                        duration: 125,
+                        ease: 'Back.Out',
+                        onComplete: () => {
+                          this.isAnimating = false;
+                          this.swapButton.disabled = false;
+                        }
+                      });
+                    }
+                  });
+                }
+              });
+            }
+          });
         }
       }
 
