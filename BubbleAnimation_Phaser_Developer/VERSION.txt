@@ -1,0 +1,4 @@
+Bubble Animation Developer Package
+Version: 1.0.0
+Date: 2026-08-04
+Phaser demo version: 4.2.1

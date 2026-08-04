@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10051f">
+  <title>Bubble Animation — Developer Demo</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body,
+    #game {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #10051f;
+    }
+
+    body {
+      touch-action: manipulation;
+    }
+
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    #play-animation {
+      position: fixed;
+      z-index: 10;
+      left: 50%;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      min-height: 44px;
+      padding: 0 18px;
+      transform: translateX(-50%);
+      border: 2px solid #7d53a8;
+      border-radius: 8px;
+      background: #211034;
+      color: #fff;
+      font: 700 14px/1 "Courier New", monospace;
+      box-shadow: 0 4px 0 #09030f;
+      cursor: pointer;
+    }
+
+    #play-animation:active {
+      transform: translate(-50%, 3px);
+      box-shadow: 0 1px 0 #09030f;
+    }
+
+    #play-animation:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+  <main id="game" aria-label="Демонстрация анимации бабла"></main>
+  <button id="play-animation" type="button">Прыжок → WOW</button>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"></script>
+  <script src="bubble-animation.js"></script>
+  <script>
+    (() => {
+      'use strict';
+
+      class DemoScene extends Phaser.Scene {
+        preload() {
+          this.load.image('bubble', 'assets/buble.png');
+          this.load.image('x1', 'assets/x1.png');
+          this.load.image('wow', 'assets/wow.png');
+        }
+
+        create() {
+          const button = document.querySelector('#play-animation');
+
+          this.bubbleAnimation = new BubbleAnimationController(this, {
+            x: this.scale.gameSize.width / 2,
+            y: this.scale.gameSize.height / 2,
+            onSwitch: (activeTexture) => {
+              button.textContent = activeTexture === 'wow'
+                ? 'Прыжок → x1'
+                : 'Прыжок → WOW';
+            },
+            onComplete: () => {
+              button.disabled = false;
+            }
+          });
+
+          this.handlePlay = () => {
+            if (this.bubbleAnimation.play()) {
+              button.disabled = true;
+            }
+          };
+          this.handleResize = (gameSize) => {
+            this.bubbleAnimation.setPosition(gameSize.width / 2, gameSize.height / 2);
+          };
+
+          button.addEventListener('click', this.handlePlay);
+          this.scale.on('resize', this.handleResize);
+
+          this.events.once('shutdown', () => {
+            button.removeEventListener('click', this.handlePlay);
+            this.scale.off('resize', this.handleResize);
+            this.bubbleAnimation.destroy();
+          });
+        }
+      }
+
+      new Phaser.Game({
+        type: Phaser.AUTO,
+        parent: 'game',
+        width: window.innerWidth,
+        height: window.innerHeight,
+        backgroundColor: '#10051f',
+        pixelArt: true,
+        antialias: false,
+        roundPixels: true,
+        scale: {
+          mode: Phaser.Scale.RESIZE
+        },
+        scene: DemoScene
+      });
+    })();
+  </script>
+</body>
+</html>
